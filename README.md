@@ -2,7 +2,7 @@
 
 UseIt is a secure mobile gift-card wallet for scanning, organizing, and tracking user-authorized, closed-loop retailer gift cards.
 
-## Senior Design
+## Senior Design MVP
 
 - Scan barcodes and QR codes, with manual entry when scanning fails.
 - Store card information securely and reveal sensitive details only on demand.
