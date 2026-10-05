@@ -6,7 +6,7 @@ const _lime = Color(0xFF8FD14F);
 const _lavender = Color(0xFFE4DFFF);
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, user});
 
   @override
   Widget build(BuildContext context) {
