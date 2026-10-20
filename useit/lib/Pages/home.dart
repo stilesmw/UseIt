@@ -4,526 +4,349 @@ const _background = Color(0xFF141518);
 const _surface = Color(0xFF202126);
 const _lime = Color(0xFF8FD14F);
 const _lavender = Color(0xFFE4DFFF);
+const _mutedText = Color(0xFFAAA7B7);
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key, user});
+  const HomeScreen({super.key, this.user});
+
+  final Map<String, dynamic>? user;
 
   @override
   Widget build(BuildContext context) {
-    return const WalletHome();
+    return WalletHome(user: user);
   }
 }
 
-class GiftCardSummary {
-  const GiftCardSummary({
-    required this.merchant,
-    required this.maskedNumber,
-    required this.balance,
-    required this.updated,
-    required this.color,
-    required this.mark,
-    this.markColor = Colors.white,
-  });
-
-  final String merchant;
-  final String maskedNumber;
-  final String balance;
-  final String updated;
-  final Color color;
-  final String mark;
-  final Color markColor;
-}
-
-/// Static data source; replace with a SQLite-backed repository when available.
 class WalletHome extends StatelessWidget {
-  const WalletHome({super.key});
+  const WalletHome({super.key, this.user});
 
-  static const cards = <GiftCardSummary>[
-    GiftCardSummary(
-      merchant: 'Starbucks',
-      maskedNumber: '2847 3301',
-      balance: '\$18.45',
-      updated: '2 days ago',
-      color: Color(0xFF087348),
-      mark: '★',
-    ),
-    GiftCardSummary(
-      merchant: 'Amazon',
-      maskedNumber: 'PK2M-8WLN',
-      balance: '\$75.00',
-      updated: '1 week ago',
-      color: Color(0xFFE28A35),
-      mark: 'A',
-    ),
-    GiftCardSummary(
-      merchant: 'Apple',
-      maskedNumber: '2W3R-9BTL',
-      balance: '\$50.00',
-      updated: 'Never',
-      color: Color(0xFF393A40),
-      mark: '●',
-    ),
-  ];
+  final Map<String, dynamic>? user;
+
+  String get userName {
+    final name = user?['name']?.toString().trim();
+
+    if (name != null && name.isNotEmpty) return name;
+
+    final email = user?['email']?.toString() ?? '';
+    return email.isNotEmpty ? email.split('@').first : 'there';
+  }
+
+  void _comingSoon(BuildContext context, String feature) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$feature is coming soon.')),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _background,
       body: SafeArea(
-        child: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(22, 20, 22, 12),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  _Header(),
-                  const SizedBox(height: 24),
-                  const _BalanceCard(),
-                  const SizedBox(height: 24),
-                  const _QuickActions(),
-                  const SizedBox(height: 28),
-                  _RecentCards(cards: cards),
-                  const SizedBox(height: 22),
-                  const _SecurityBanner(),
-                  const SizedBox(height: 18),
-                ]),
-              ),
-            ),
-          ],
-        ),
-      ),
-      bottomNavigationBar: const _BottomNavigation(),
-    );
-  }
-}
-
-class _Header extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Good morning',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: .58),
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Your Wallet',
-              style: TextStyle(
-                color: _lavender,
-                fontSize: 29,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -.5,
-              ),
-            ),
-          ],
-        ),
-      ),
-      Material(
-        color: _surface,
-        shape: const CircleBorder(),
-        child: IconButton(
-          tooltip: 'Notifications',
-          onPressed: () {},
-          icon: const Icon(Icons.notifications_none_rounded, color: _lavender),
-        ),
-      ),
-    ],
-  );
-}
-
-class _BalanceCard extends StatelessWidget {
-  const _BalanceCard();
-
-  @override
-  Widget build(BuildContext context) => Container(
-    height: 174,
-    padding: const EdgeInsets.all(22),
-    decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        colors: [Color(0xFF8FD14F), Color(0xFFC7DDA8), Color(0xFFE4DFFF)],
-        begin: Alignment.centerLeft,
-        end: Alignment.centerRight,
-      ),
-      borderRadius: BorderRadius.circular(24),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'TOTAL BALANCE',
-          style: TextStyle(
-            color: Color(0xFF30342B),
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1.5,
-          ),
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          '\$224.74',
-          style: TextStyle(
-            color: Color(0xFF191B1A),
-            fontSize: 38,
-            height: 1.1,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -1,
-          ),
-        ),
-        const Spacer(),
-        Row(
-          children: [
-            const Text(
-              '6 active cards',
-              style: TextStyle(
-                color: Color(0xFF30342B),
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const Spacer(),
-            Container(
-              width: 7,
-              height: 7,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
-}
-
-class _QuickActions extends StatelessWidget {
-  const _QuickActions();
-
-  @override
-  Widget build(BuildContext context) {
-    final actions = [
-      _ActionData('Scan Card', Icons.qr_code_scanner_rounded, '/scan'),
-      _ActionData('Add Manual', Icons.add_rounded, '/add-card'),
-      _ActionData('Categories', Icons.grid_view_rounded, '/categories'),
-    ];
-    return Row(
-      children: [
-        for (var i = 0; i < actions.length; i++) ...[
-          Expanded(child: _ActionButton(action: actions[i])),
-          if (i != actions.length - 1) const SizedBox(width: 11),
-        ],
-      ],
-    );
-  }
-}
-
-class _ActionData {
-  const _ActionData(this.label, this.icon, this.route);
-  final String label;
-  final IconData icon;
-  final String route;
-}
-
-class _ActionButton extends StatelessWidget {
-  const _ActionButton({required this.action});
-  final _ActionData action;
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: _surface,
-    borderRadius: BorderRadius.circular(18),
-    child: InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: () => Navigator.pushNamed(context, action.route),
-      child: SizedBox(
-        height: 92,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(action.icon, color: _lime, size: 25),
-            const SizedBox(height: 9),
-            Text(
-              action.label,
-              maxLines: 1,
-              style: const TextStyle(
-                color: _lavender,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-class _RecentCards extends StatelessWidget {
-  const _RecentCards({required this.cards});
-  final List<GiftCardSummary> cards;
-
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      Row(
-        children: [
-          const Text(
-            'Recent Cards',
-            style: TextStyle(
-              color: _lavender,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const Spacer(),
-          TextButton(
-            onPressed: () => Navigator.pushNamed(context, '/wallet'),
-            style: TextButton.styleFrom(
-              foregroundColor: _lime,
-              padding: EdgeInsets.zero,
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            child: const Text(
-              'See all',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 10),
-      for (final card in cards) ...[
-        _CardRow(card: card),
-        const SizedBox(height: 9),
-      ],
-    ],
-  );
-}
-
-class _CardRow extends StatelessWidget {
-  const _CardRow({required this.card});
-  final GiftCardSummary card;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
-    decoration: BoxDecoration(
-      color: _surface,
-      borderRadius: BorderRadius.circular(17),
-    ),
-    child: Row(
-      children: [
-        Container(
-          width: 43,
-          height: 43,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: card.color,
-            borderRadius: BorderRadius.circular(13),
-          ),
-          child: Text(
-            card.mark,
-            style: TextStyle(
-              color: card.markColor,
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 20, 22, 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                card.merchant,
+                'Good morning, $userName',
                 style: const TextStyle(
-                  color: _lavender,
-                  fontSize: 14,
+                  color: Colors.white,
+                  fontSize: 25,
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                card.maskedNumber,
+              const SizedBox(height: 6),
+              const Text(
+                'Your Wallet',
+                style: TextStyle(color: _mutedText, fontSize: 16),
+              ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  Expanded(
+                    child: _QuickActionButton(
+                      icon: Icons.qr_code_scanner_rounded,
+                      label: 'Scan Card',
+                      onTap: () => Navigator.pushNamed(context, '/scan'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _QuickActionButton(
+                      icon: Icons.add_rounded,
+                      label: 'Add Manual',
+                      onTap: () => _comingSoon(context, 'Manual card entry'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _QuickActionButton(
+                      icon: Icons.grid_view_rounded,
+                      label: 'Categories',
+                      onTap: () => _comingSoon(context, 'Categories'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 30),
+              const Text(
+                'Recent Cards',
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: .48),
-                  fontSize: 11,
-                  letterSpacing: .5,
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 14),
+              const _GiftCardTile(
+                brand: 'Starbucks',
+                amount: '\$18.50',
+                icon: Icons.coffee_rounded,
+                color: Color(0xFF0B6B52),
+              ),
+              const SizedBox(height: 12),
+              const _GiftCardTile(
+                brand: 'Target',
+                amount: '\$25.00',
+                icon: Icons.shopping_bag_rounded,
+                color: Color(0xFFA92330),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: _surface,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.shield_outlined, color: _lime),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Your data is protected',
+                            style: TextStyle(
+                              color: _lavender,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          SizedBox(height: 3),
+                          Text(
+                            'Your card data is securely protected.',
+                            style: TextStyle(
+                              color: _mutedText,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
         ),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              card.balance,
-              style: const TextStyle(
-                color: _lime,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              card.updated,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: .4),
-                fontSize: 10,
-              ),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
+      ),
+      bottomNavigationBar: _BottomNavigation(
+        onHomeTap: () {},
+        onScanTap: () => Navigator.pushNamed(context, '/scan'),
+        onOtherTap: () => _comingSoon(context, 'That page'),
+      ),
+    );
+  }
 }
 
-class _SecurityBanner extends StatelessWidget {
-  const _SecurityBanner();
+class _QuickActionButton extends StatelessWidget {
+  const _QuickActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
-    decoration: BoxDecoration(
-      color: const Color(0xFF1C2A20),
-      borderRadius: BorderRadius.circular(16),
-    ),
-    child: Row(
-      children: [
-        const Icon(Icons.verified_user_rounded, color: _lime, size: 23),
-        const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'End-to-end encrypted',
-              style: TextStyle(
-                color: _lavender,
-                fontSize: 12,
+  Widget build(BuildContext context) {
+    return Material(
+      color: _surface,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+          child: Column(
+            children: [
+              Icon(icon, color: _lime, size: 28),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: _lavender,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GiftCardTile extends StatelessWidget {
+  const _GiftCardTile({
+    required this.brand,
+    required this.amount,
+    required this.icon,
+    required this.color,
+  });
+
+  final String brand;
+  final String amount;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: Colors.white),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              brand,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 3),
-            Text(
-              'Your card data is stored securely on-device',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: .5),
-                fontSize: 10,
-              ),
+          ),
+          Text(
+            amount,
+            style: const TextStyle(
+              color: _lime,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
             ),
-          ],
-        ),
-      ],
-    ),
-  );
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _BottomNavigation extends StatelessWidget {
-  const _BottomNavigation();
+  const _BottomNavigation({
+    required this.onHomeTap,
+    required this.onScanTap,
+    required this.onOtherTap,
+  });
+
+  final VoidCallback onHomeTap;
+  final VoidCallback onScanTap;
+  final VoidCallback onOtherTap;
 
   @override
-  Widget build(BuildContext context) => Container(
-    decoration: const BoxDecoration(
-      color: _surface,
-      border: Border(top: BorderSide(color: Color(0xFF2C2D32))),
-    ),
-    child: SafeArea(
-      top: false,
-      child: SizedBox(
-        height: 67,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _NavItem(
-              icon: Icons.home_rounded,
-              label: 'Home',
-              route: '/',
-              selected: true,
-            ),
-            _NavItem(
-              icon: Icons.credit_card_rounded,
-              label: 'Wallet',
-              route: '/wallet',
-            ),
-            InkWell(
-              onTap: () => Navigator.pushNamed(context, '/scan'),
-              customBorder: const CircleBorder(),
-              child: Container(
-                width: 52,
-                height: 52,
-                decoration: const BoxDecoration(
-                  color: _lime,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.qr_code_scanner_rounded,
-                  color: Color(0xFF1A2017),
-                  size: 25,
-                ),
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFF1B1C21),
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 22),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          _NavButton(
+            icon: Icons.home_rounded,
+            label: 'Home',
+            selected: true,
+            onTap: onHomeTap,
+          ),
+          _NavButton(
+            icon: Icons.wallet_rounded,
+            label: 'Wallet',
+            onTap: onOtherTap,
+          ),
+          GestureDetector(
+            onTap: onScanTap,
+            child: Container(
+              width: 58,
+              height: 58,
+              decoration: const BoxDecoration(
+                color: _lime,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.qr_code_scanner_rounded,
+                color: Colors.black,
+                size: 29,
               ),
             ),
-            _NavItem(
-              icon: Icons.grid_view_rounded,
-              label: 'Categories',
-              route: '/categories',
-            ),
-            _NavItem(
-              icon: Icons.settings_rounded,
-              label: 'Settings',
-              route: '/settings',
-            ),
-          ],
-        ),
+          ),
+          _NavButton(
+            icon: Icons.grid_view_rounded,
+            label: 'Categories',
+            onTap: onOtherTap,
+          ),
+          _NavButton(
+            icon: Icons.settings_rounded,
+            label: 'Settings',
+            onTap: onOtherTap,
+          ),
+        ],
       ),
-    ),
-  );
+    );
+  }
 }
 
-class _NavItem extends StatelessWidget {
-  const _NavItem({
+class _NavButton extends StatelessWidget {
+  const _NavButton({
     required this.icon,
     required this.label,
-    required this.route,
+    required this.onTap,
     this.selected = false,
   });
+
   final IconData icon;
   final String label;
-  final String route;
+  final VoidCallback onTap;
   final bool selected;
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? _lime : Colors.white.withValues(alpha: .4);
-    return InkWell(
-      onTap: () => Navigator.pushNamed(context, route),
-      child: SizedBox(
-        width: 60,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 21),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(
-                color: color,
-                fontSize: 9,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
+    final color = selected ? _lime : _mutedText;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(height: 3),
+          Text(label, style: TextStyle(color: color, fontSize: 10)),
+        ],
       ),
     );
   }

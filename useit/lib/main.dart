@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import 'Pages/home.dart';
+import 'Pages/scan.dart';
 import 'auth_screen.dart';
 
 void main() {
@@ -11,10 +14,16 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    return MaterialApp(
+      title: 'UseIt',
       debugShowCheckedModeBanner: false,
-      home: AuthScreen(),
+      theme: ThemeData(useMaterial3: true),
+      initialRoute: '/auth',
+      routes: {
+        '/auth': (context) => const AuthScreen(),
+        '/home': (context) => const HomeScreen(),
+        '/scan': (context) => const ScanPage(),
+      },
     );
   }
 }
-
