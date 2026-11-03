@@ -55,51 +55,14 @@ class _ScanPageState extends State<ScanPage> {
   }
 
   // 5. Action triggered by pressing the confirmation button
-  Future<void> _submitScannedCard() async {
-    if (_scannedBarcodeValue == null || _isProcessingScan) return;
+void _submitScannedCard() {
+  final barcode = _scannedBarcodeValue;
 
-    setState(() {
-      _isProcessingScan = true;
-    });
+  if (barcode == null || _isProcessingScan) return;
 
-    // Show a loading dialog over the UI
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(color: limeGreen),
-      ),
-    );
-
-    try {
-      // TODO: Call your Azure Node.js API here:
-      // await NetworkService.saveGiftCard(_scannedBarcodeValue!);
-      
-      await Future.delayed(const Duration(seconds: 2)); // Simulated network call
-
-      if (!mounted) return;
-      Navigator.pop(context); // Dismiss loading spinner
-
-      // Pop back to wallet/home layout successfully
-      Navigator.pop(context); 
-    } catch (e) {
-      if (!mounted) return;
-      Navigator.pop(context); // Dismiss loading spinner
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Failed to save card. Please try again.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-
-      setState(() {
-        _isProcessingScan = false;
-        _cardDetected = false;
-        _scannedBarcodeValue = null;
-      });
-    }
-  }
+  // Return the barcode to the page that opened the scanner.
+  Navigator.of(context).pop(barcode);
+}
 
   void _continueToManualEntry() {
     Navigator.pushNamed(context, '/add-card');
@@ -245,7 +208,7 @@ class _ScanPageState extends State<ScanPage> {
                   ),
                   child: Text(
                     _cardDetected
-                        ? 'Confirm & Save to Wallet →'
+                        ? 'Review in Wallet →'
                         : 'Awaiting Card Placement...',
                     style: const TextStyle(
                       fontSize: 16,
