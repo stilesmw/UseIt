@@ -3,7 +3,7 @@ import 'package:useit/Pages/Wallet.dart';
 
 // One temporary session shared by Home and Wallet.
 // Cards are not saved to Azure and disappear when the app restarts.
-final WalletSession walletSession = WalletSession.preview();
+final WalletSession walletSession = WalletSession();
 
 const _background = Color(0xFF141518);
 const _surface = Color(0xFF202126);
