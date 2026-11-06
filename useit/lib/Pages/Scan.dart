@@ -14,7 +14,6 @@ class _ScanPageState extends State<ScanPage> {
   static const Color lightText = Color(0xFFE9E4FF);
   static const Color mutedText = Color(0xFFAAA7B7);
 
-  // 2. Add controllers and safety locks
   final MobileScannerController _cameraController = MobileScannerController(
     formats: const [BarcodeFormat.all], 
     detectionSpeed: DetectionSpeed.noDuplicates,
@@ -26,11 +25,10 @@ class _ScanPageState extends State<ScanPage> {
 
   @override
   void dispose() {
-    _cameraController.dispose(); // 3. Clean up the camera resources
+    _cameraController.dispose(); 
     super.dispose();
   }
 
-  // 4. Handle actual live camera frame detections
   void _onBarcodeDetected(BarcodeCapture capture) {
     if (_isProcessingScan || _cardDetected) return;
 
@@ -54,15 +52,17 @@ class _ScanPageState extends State<ScanPage> {
     }
   }
 
-  // 5. Action triggered by pressing the confirmation button
-void _submitScannedCard() {
-  final barcode = _scannedBarcodeValue;
+  void _submitScannedCard() async {
+    final barcode = _scannedBarcodeValue;
+    if (barcode == null || _isProcessingScan) return;
 
-  if (barcode == null || _isProcessingScan) return;
+    // Shut off camera resources before popping to prevent background memory leaks
+    await _cameraController.stop();
 
-  // Return the barcode to the page that opened the scanner.
-  Navigator.of(context).pop(barcode);
-}
+    if (mounted) {
+      Navigator.of(context).pop(barcode);
+    }
+  }
 
   void _continueToManualEntry() {
     Navigator.pushNamed(context, '/add-card');
@@ -79,7 +79,6 @@ void _submitScannedCard() {
           padding: const EdgeInsets.fromLTRB(24, 18, 24, 28),
           child: Column(
             children: [
-              // Header Row
               Row(
                 children: [
                   IconButton(
@@ -104,7 +103,6 @@ void _submitScannedCard() {
                       ),
                     ),
                   ),
-                  
                   IconButton(
                     onPressed: () => _cameraController.toggleTorch(),
                     icon: const Icon(Icons.flash_on_rounded),
@@ -117,10 +115,7 @@ void _submitScannedCard() {
                   ),
                 ],
               ),
-
               const SizedBox(height: 42),
-
-              // Scanner Box Container
               Expanded(
                 child: Container(
                   width: double.infinity,
@@ -129,10 +124,7 @@ void _submitScannedCard() {
                     gradient: const LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
-                      colors: [
-                        Color(0xFF22242B),
-                        Color(0xFF0B0C0E),
-                      ],
+                      colors: [Color(0xFF22242B), Color(0xFF0B0C0E)],
                     ),
                   ),
                   child: ClipRRect(
@@ -140,7 +132,6 @@ void _submitScannedCard() {
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                       
                         if (!_cardDetected)
                           MobileScanner(
                             controller: _cameraController,
@@ -152,17 +143,11 @@ void _submitScannedCard() {
                             color: limeGreen,
                             size: 78,
                           ),
-
-                        
                         if (!_cardDetected)
                           Positioned.fill(
                             child: Container(color: Colors.black26),
                           ),
-
-                      
                         _ScannerCorners(color: scanColor),
-
-                        // Status Info text banner layout
                         Positioned(
                           bottom: 34,
                           child: Container(
@@ -189,46 +174,30 @@ void _submitScannedCard() {
                   ),
                 ),
               ),
-
               const SizedBox(height: 26),
-
-              // Primary Action Confirmation/Simulation Button
               SizedBox(
                 width: double.infinity,
                 height: 58,
                 child: OutlinedButton(
-                  onPressed: _cardDetected ? _submitScannedCard : null, // Disabled until a real card registers
+                  onPressed: _cardDetected ? _submitScannedCard : null,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: lightText,
                     disabledForegroundColor: mutedText,
                     side: BorderSide(color: _cardDetected ? limeGreen : const Color(0xFF333640)),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
                   ),
                   child: Text(
-                    _cardDetected
-                        ? 'Review in Wallet →'
-                        : 'Awaiting Card Placement...',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    _cardDetected ? 'Review in Wallet →' : 'Awaiting Card Placement...',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                   ),
                 ),
               ),
-
               const SizedBox(height: 18),
-
               TextButton(
                 onPressed: _continueToManualEntry,
                 child: const Text(
                   'Add card manually',
-                  style: TextStyle(
-                    color: lightText,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: TextStyle(color: lightText, fontSize: 16, fontWeight: FontWeight.w700),
                 ),
               ),
             ],
@@ -239,53 +208,51 @@ void _submitScannedCard() {
   }
 }
 
-// Keep your existing _ScannerCorners class code exactly the same down here...
 class _ScannerCorners extends StatelessWidget {
-  const _ScannerCorners({super.key, required this.color});
-
   final Color color;
+  const _ScannerCorners({required this.color});
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 250,
-      height: 330,
-      child: Stack(
-        children: [
-          _corner(alignment: Alignment.topLeft, top: true, left: true),
-          _corner(alignment: Alignment.topRight, top: true, left: false),
-          _corner(alignment: Alignment.bottomLeft, top: false, left: true),
-          _corner(alignment: Alignment.bottomRight, top: false, left: false),
-        ],
-      ),
-    );
-  }
-
-  Widget _corner({
-    required Alignment alignment,
-    required bool top,
-    required bool left,
-  }) {
-    return Align(
-      alignment: alignment,
-      child: Container(
-        width: 64,
-        height: 64,
-        decoration: BoxDecoration(
-          border: Border(
-            top: top ? BorderSide(color: color, width: 4) : BorderSide.none,
-            bottom: !top ? BorderSide(color: color, width: 4) : BorderSide.none,
-            left: left ? BorderSide(color: color, width: 4) : BorderSide.none,
-            right: !left ? BorderSide(color: color, width: 4) : BorderSide.none,
-          ),
-          borderRadius: BorderRadius.only(
-            topLeft: top && left ? const Radius.circular(18) : Radius.zero,
-            topRight: top && !left ? const Radius.circular(18) : Radius.zero,
-            bottomLeft: !top && left ? const Radius.circular(18) : Radius.zero,
-            bottomRight: !top && !left ? const Radius.circular(18) : Radius.zero,
-          ),
-        ),
+    return Positioned.fill(
+      child: CustomPaint(
+        painter: _CornerPainter(color: color),
       ),
     );
   }
 }
+
+class _CornerPainter extends CustomPainter {
+  final Color color;
+  _CornerPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 4
+      ..style = PaintingStyle.stroke;
+
+    final double len = 24;
+
+    // Top Left
+    canvas.drawLine(Offset.zero, Offset(0, len), paint);
+    canvas.drawLine(Offset.zero, Offset(len, 0), paint);
+
+    // Top Right
+    canvas.drawLine(Offset(size.width, 0), Offset(size.width - len, 0), paint);
+    canvas.drawLine(Offset(size.width, 0), Offset(size.width, len), paint);
+
+    // Bottom Left
+    canvas.drawLine(Offset(0, size.height), Offset(0, size.height - len), paint);
+    canvas.drawLine(Offset(0, size.height), Offset(len, size.height), paint);
+
+    // Bottom Right
+    canvas.drawLine(Offset(size.width, size.height), Offset(size.width - len, size.height), paint);
+    canvas.drawLine(Offset(size.width, size.height), Offset(size.width, size.height - len), paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+

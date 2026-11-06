@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:useit/Pages/Wallet.dart';
 
-// One temporary session shared by Home and Wallet.
-// Cards are not saved to Azure and disappear when the app restarts.
+// One wallet session shared by Home and Wallet.
 final WalletSession walletSession = WalletSession();
 
 const _background = Color(0xFF141518);
@@ -11,13 +10,26 @@ const _lime = Color(0xFF8FD14F);
 const _lavender = Color(0xFFE4DFFF);
 const _muted = Color(0xFFAAA7B7);
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.user});
 
   final Map<String, dynamic>? user;
 
   @override
-  Widget build(BuildContext context) => WalletHome(user: user);
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      walletSession.fetchWalletCards();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => WalletHome(user: widget.user);
 }
 
 class WalletHome extends StatelessWidget {
@@ -167,7 +179,14 @@ class WalletHome extends StatelessWidget {
                         ),
                       ],
                     ),
-                    if (recentCards.isEmpty)
+                    if (recentCards.isEmpty && walletSession.isLoading)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 28),
+                        child: Center(
+                          child: CircularProgressIndicator(color: _lime),
+                        ),
+                      )
+                    else if (recentCards.isEmpty)
                       _EmptyCards(onScan: () => _scanFromHome(context))
                     else
                       ...recentCards.map(
@@ -425,11 +444,11 @@ class _SessionNote extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(isPreview ? 'Preview includes sample cards' : 'Temporary wallet', style: const TextStyle(
+              Text(isPreview ? 'Preview includes sample cards' : 'Azure-backed wallet', style: const TextStyle(
                 color: _lavender, fontWeight: FontWeight.w700,
               )),
               const SizedBox(height: 3),
-              const Text('Cards are kept only while the app is open.', style: TextStyle(
+              const Text('Saved cards load from the cloud when Home opens.', style: TextStyle(
                 color: _muted, fontSize: 12,
               )),
             ],
