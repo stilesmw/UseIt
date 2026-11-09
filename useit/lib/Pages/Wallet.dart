@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../azure_config.dart';
+import '../azure_service.dart';
 import 'scan.dart'; // Correct lowercase target match matching your filesystem 
 
 const _background = Color(0xFF141518);
@@ -30,6 +31,7 @@ class WalletSession extends ChangeNotifier {
 
   List<WalletGiftCard> get cards => List.unmodifiable(_cards);
   bool get isLoading => _isLoading;
+  static const int _currentUserId = 1;
 
   /// Fetches gift cards cleanly from your Node.js Azure backend database route
     Future<void> fetchWalletCards() async {
@@ -55,6 +57,9 @@ class WalletSession extends ChangeNotifier {
           _cards.add(WalletGiftCard(
             merchant: item['Nickname'] ?? item['MerchantName'] ?? 'Unknown Merchant',
             barcode: item['RawBarcodeData'] ?? '',
+            cardId: int.tryParse(item['CardID']?.toString() ?? ''),
+            squareGiftCardId: item['SquareGiftCardID']?.toString(),
+            status: item['Status']?.toString() ?? 'active',
             balanceCents: (balanceDecimal * 100).toInt(),
             originalCents: (balanceDecimal * 100).toInt(), 
             addedAt: item['DateAdded'] != null ? DateTime.parse(item['DateAdded']) : DateTime.now(),
@@ -73,7 +78,58 @@ class WalletSession extends ChangeNotifier {
   }
 
   void add(WalletGiftCard card) {
-    _cards.add(card);
+    final existingIndex = _cards.indexWhere(
+      (item) =>
+          (card.cardId != null && item.cardId == card.cardId) ||
+          (card.squareGiftCardId != null &&
+              item.squareGiftCardId == card.squareGiftCardId),
+    );
+    if (existingIndex == -1) {
+      _cards.add(card);
+    } else {
+      _cards[existingIndex] = card;
+    }
+    notifyListeners();
+  }
+
+  Future<void> softDelete(WalletGiftCard card) async {
+    if (isPreview) {
+      _cards.remove(card);
+      notifyListeners();
+      return;
+    }
+
+    final cardId = card.cardId;
+    if (cardId == null) {
+      throw StateError('This card has no database ID. Refresh the wallet and try again.');
+    }
+
+    final response = await http
+        .delete(
+          Uri.parse('${AzureConfig.baseUrl}/giftcards/$cardId'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'x-functions-key': AzureConfig.functionKey,
+          },
+          body: jsonEncode({'UserID': _currentUserId}),
+        )
+        .timeout(const Duration(seconds: 20));
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      String message = 'Delete failed (${response.statusCode}).';
+      try {
+        final body = jsonDecode(response.body);
+        if (body is Map && body['error'] is String) {
+          message = body['error'] as String;
+        }
+      } on FormatException {
+        // Keep the status-based error when the server does not return JSON.
+      }
+      throw Exception(message);
+    }
+
+    _cards.removeWhere((item) => item.cardId == cardId);
     notifyListeners();
   }
 
@@ -88,6 +144,9 @@ class WalletGiftCard {
     required this.merchant,
     required this.barcode,
     required this.addedAt,
+    this.cardId,
+    this.squareGiftCardId,
+    this.status = 'active',
     this.balanceCents,
     this.originalCents,
   });
@@ -95,6 +154,9 @@ class WalletGiftCard {
   final String merchant;
   final String barcode;
   final DateTime addedAt;
+  final int? cardId;
+  final String? squareGiftCardId;
+  final String status;
   final int? balanceCents;
   final int? originalCents;
 
@@ -146,14 +208,57 @@ class _WalletPageState extends State<WalletPage> {
   }
 
   Future<void> _reviewBarcode(String barcode) async {
+    final lookupFuture = AzureService().lookupSquareGiftCard(barcode.trim());
+    final loadingDialog = showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(color: _lime),
+            SizedBox(width: 20),
+            Expanded(child: Text('Looking up card in Square Sandbox...')),
+          ],
+        ),
+      ),
+    );
+
+    late final SquareGiftCardLookup squareCard;
+    try {
+      squareCard = await lookupFuture;
+    } catch (error) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        await loadingDialog;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Square lookup failed: ${error.toString().replaceFirst('Exception: ', '')}',
+              ),
+            ),
+          );
+        }
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop();
+    await loadingDialog;
+
+    if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
-      isScrollControlled: true, 
+      isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: _surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (_) => _ReviewCardSheet(
         barcode: barcode.trim(),
+        squareCard: squareCard,
         onSaveSuccess: (newCard) => widget.session.add(newCard),
         onTriggerRefresh: () => widget.session.fetchWalletCards(),
       ),
@@ -215,12 +320,81 @@ class _WalletPageState extends State<WalletPage> {
                   Text(_formatMoney(card.balanceCents), style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
                 ],
               ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Status', style: TextStyle(color: _mutedText, fontSize: 14)),
+                  Text(
+                    card.status.toUpperCase(),
+                    style: TextStyle(
+                      color: card.status.toUpperCase() == 'ACTIVE'
+                          ? _lime
+                          : Colors.orangeAccent,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  onPressed: () => _confirmDeleteCard(card),
+                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                  label: const Text(
+                    'Remove from wallet',
+                    style: TextStyle(color: Colors.redAccent),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteCard(WalletGiftCard card) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _surface,
+        title: const Text('Remove gift card?', style: TextStyle(color: Colors.white)),
+        content: Text(
+          'This removes ${card.merchant} from your wallet. Its history will be kept, and you can add the Square card again later.',
+          style: const TextStyle(color: _lightText),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove', style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await widget.session.softDelete(card);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Gift card removed from wallet.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    }
   }
 
   @override
@@ -291,7 +465,10 @@ margin: const EdgeInsets.symmetric(vertical: 6),
 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
 child: ListTile(
 title: Text(card.merchant, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-subtitle: Text('•••• ${card.lastFour}', style: const TextStyle(color: _mutedText)),
+subtitle: Text(
+  '•••• ${card.lastFour} · ${card.status.toUpperCase()}',
+  style: const TextStyle(color: _mutedText),
+),
 trailing: Text(_formatMoney(card.balanceCents), style: const TextStyle(color: _lime, fontWeight: FontWeight.bold, fontSize: 16)),
 onTap: () => _showCardDetails(card),
 ),
@@ -320,8 +497,9 @@ child: const Icon(Icons.qr_code_scanner, color: _background),
 }
 }
 class _ReviewCardSheet extends StatefulWidget {
-const _ReviewCardSheet({required this.barcode, required this.onSaveSuccess, required this.onTriggerRefresh});
+const _ReviewCardSheet({required this.barcode, required this.squareCard, required this.onSaveSuccess, required this.onTriggerRefresh});
 final String barcode;
+final SquareGiftCardLookup squareCard;
 final Function(WalletGiftCard) onSaveSuccess;
 final VoidCallback onTriggerRefresh;
 @override
@@ -329,9 +507,16 @@ State<_ReviewCardSheet> createState() => _ReviewCardSheetState();
 }
 class _ReviewCardSheetState extends State<_ReviewCardSheet> {
 final _nicknameController = TextEditingController();
-final _balanceController = TextEditingController(text: "25.00");
+final _balanceController = TextEditingController();
 final _pinController = TextEditingController();
 bool _isSending = false;
+@override
+void initState() {
+  super.initState();
+  _balanceController.text =
+      (widget.squareCard.balanceCents / 100).toStringAsFixed(2);
+}
+
 @override
 void dispose() {
 _nicknameController.dispose();
@@ -344,14 +529,15 @@ if (_isSending) return;
 setState(() => _isSending = true);
 final Uri azureSaveUrl = Uri.parse('${AzureConfig.baseUrl}/giftcards');
 try {
-final double balanceValue = double.tryParse(_balanceController.text) ?? 0.00;
+final balanceValue = widget.squareCard.balanceCents / 100;
 Map<String, dynamic> giftCardPayload = {
 "UserID": 1,
 "MerchantID": null,
+"SquareGiftCardID": widget.squareCard.id,
 "RawBarcodeData": widget.barcode,
-"Nickname": _nicknameController.text.trim().isEmpty ? null : _nicknameController.text.trim(),
+"Nickname": _nicknameController.text.trim().isEmpty ? 'Square Gift Card' : _nicknameController.text.trim(),
 "CurrentBalance": balanceValue,
-"Status": "active",
+"Status": widget.squareCard.state.toLowerCase(),
 "Pin": _pinController.text.trim().isEmpty ? null : _pinController.text.trim()
 };
 final response = await http.post(
@@ -365,9 +551,17 @@ body: jsonEncode(giftCardPayload),
 ).timeout(const Duration(seconds: 20));
 if (response.statusCode >= 200 && response.statusCode < 300) {
 if (!mounted) return;
+final responseData = jsonDecode(response.body) as Map<String, dynamic>;
+final cardId = int.tryParse(responseData['cardId']?.toString() ?? '');
+if (cardId == null) {
+  throw const FormatException('Save response did not include a card ID.');
+}
 final newCardItem = WalletGiftCard(
-merchant: _nicknameController.text.trim().isEmpty ? 'New Card' : _nicknameController.text.trim(),
+merchant: _nicknameController.text.trim().isEmpty ? 'Square Gift Card' : _nicknameController.text.trim(),
 barcode: widget.barcode,
+cardId: cardId,
+squareGiftCardId: widget.squareCard.id,
+status: widget.squareCard.state.toLowerCase(),
 balanceCents: (balanceValue * 100).toInt(),
 originalCents: (balanceValue * 100).toInt(),
 addedAt: DateTime.now(),
@@ -418,6 +612,17 @@ children: [
 const Text('Review Scanned Card', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
 const SizedBox(height: 12),
 Text('Barcode: ${widget.barcode}', style: const TextStyle(color: _lime, fontWeight: FontWeight.w600)),
+Text(
+  'Square status: ${widget.squareCard.state}',
+  style: TextStyle(
+    color: widget.squareCard.isActive ? _lime : Colors.orangeAccent,
+    fontWeight: FontWeight.w700,
+  ),
+),
+Text(
+  'Square balance: ${(widget.squareCard.balanceCents / 100).toStringAsFixed(2)} ${widget.squareCard.currency}',
+  style: const TextStyle(color: _lightText),
+),
 TextField(
 controller: _nicknameController,
 style: const TextStyle(color: Colors.white),
@@ -425,6 +630,7 @@ decoration: const InputDecoration(labelText: 'Nickname / Retailer', labelStyle: 
 ),
 TextField(
 controller: _balanceController,
+readOnly: true,
 keyboardType: const TextInputType.numberWithOptions(decimal: true),
 style: const TextStyle(color: Colors.white),
 decoration: const InputDecoration(
