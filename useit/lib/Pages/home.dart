@@ -382,7 +382,7 @@ class _RecentCard extends StatelessWidget {
                       style: const TextStyle(color: Colors.white,
                         fontSize: 15, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 3),
-                    Text('•••• ${card.lastFour}', style: const TextStyle(
+                    Text('•••• ${card.lastFour} · ${card.status.toUpperCase()}', style: const TextStyle(
                       color: _muted, fontSize: 12,
                     )),
                   ],
