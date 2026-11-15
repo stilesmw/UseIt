@@ -15,11 +15,12 @@ class _ScanPageState extends State<ScanPage> {
   static const Color mutedText = Color(0xFFAAA7B7);
 
   final MobileScannerController _cameraController = MobileScannerController(
-    formats: const [BarcodeFormat.all], 
-    detectionSpeed: DetectionSpeed.noDuplicates,
+    formats: const [BarcodeFormat.all],
+    detectionSpeed: DetectionSpeed.normal,
   );
 
   bool _cardDetected = false;
+  bool _scanArmed = false;
   bool _isProcessingScan = false; 
   String? _scannedBarcodeValue;
 
@@ -30,34 +31,53 @@ class _ScanPageState extends State<ScanPage> {
   }
 
   void _onBarcodeDetected(BarcodeCapture capture) {
-    if (_isProcessingScan || _cardDetected) return;
+    if (!_scanArmed || _isProcessingScan || _cardDetected) return;
 
-    final List<Barcode> barcodes = capture.barcodes;
-    if (barcodes.isNotEmpty) {
-      final String? barcodeValue = barcodes.first.rawValue;
+    for (final barcode in capture.barcodes) {
+      final barcodeValue = barcode.rawValue?.trim();
+      if (barcodeValue == null || barcodeValue.isEmpty) continue;
 
-      if (barcodeValue != null) {
-        setState(() {
-          _cardDetected = true;
-          _scannedBarcodeValue = barcodeValue;
-        });
+      setState(() {
+        _cardDetected = true;
+        _scanArmed = false;
+        _scannedBarcodeValue = barcodeValue;
+      });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Gift card detected!'),
-            backgroundColor: Color(0xFF2C4721),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Gift card detected!'),
+          backgroundColor: Color(0xFF2C4721),
+        ),
+      );
+      break;
     }
   }
 
-  void _submitScannedCard() async {
+  void _startScan() {
+    setState(() => _scanArmed = true);
+  }
+
+  void _cancelScan() {
+    setState(() => _scanArmed = false);
+  }
+
+  Future<void> _submitScannedCard() async {
     final barcode = _scannedBarcodeValue;
     if (barcode == null || _isProcessingScan) return;
 
-    // Shut off camera resources before popping to prevent background memory leaks
-    await _cameraController.stop();
+    setState(() => _isProcessingScan = true);
+
+    try {
+      // Shut off camera resources before popping to prevent background leaks.
+      await _cameraController.stop();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isProcessingScan = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not stop the scanner: $error')),
+      );
+      return;
+    }
 
     if (mounted) {
       Navigator.of(context).pop(barcode);
@@ -159,7 +179,9 @@ class _ScanPageState extends State<ScanPage> {
                             child: Text(
                               _cardDetected
                                   ? 'Card detected — ready to add'
-                                  : 'Point camera at barcode or card number',
+                                  : _scanArmed
+                                      ? 'Point camera at the barcode'
+                                      : 'Tap Scan Card to begin',
                               textAlign: TextAlign.center,
                               style: const TextStyle(
                                 color: Colors.white,
@@ -178,8 +200,38 @@ class _ScanPageState extends State<ScanPage> {
               SizedBox(
                 width: double.infinity,
                 height: 58,
+                child: ElevatedButton(
+                  onPressed: _cardDetected
+                      ? null
+                      : _scanArmed
+                          ? _cancelScan
+                          : _startScan,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: limeGreen,
+                    foregroundColor: backgroundColor,
+                    disabledBackgroundColor: const Color(0xFF333640),
+                    disabledForegroundColor: mutedText,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
+                  child: Text(
+                    _scanArmed ? 'Cancel Scan' : 'Scan Card',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 58,
                 child: OutlinedButton(
-                  onPressed: _cardDetected ? _submitScannedCard : null,
+                  onPressed: _cardDetected && !_isProcessingScan
+                      ? _submitScannedCard
+                      : null,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: lightText,
                     disabledForegroundColor: mutedText,
@@ -187,7 +239,11 @@ class _ScanPageState extends State<ScanPage> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
                   ),
                   child: Text(
-                    _cardDetected ? 'Review in Wallet →' : 'Awaiting Card Placement...',
+                    _isProcessingScan
+                        ? 'Opening Wallet...'
+                        : _cardDetected
+                            ? 'Review in Wallet →'
+                            : 'Scan a card to continue',
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                   ),
                 ),
@@ -255,4 +311,3 @@ class _CornerPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
-
