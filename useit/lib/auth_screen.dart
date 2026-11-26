@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:useit/Pages/home.dart';
-import 'package:useit/azure_service.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -10,7 +10,6 @@ class AuthScreen extends StatefulWidget {
 }
 
 class _AuthScreenState extends State<AuthScreen> {
-  final AzureService _azureService = AzureService();
   final _formKey = GlobalKey<FormState>();
   
   bool isLoginMode = true;
@@ -20,43 +19,96 @@ class _AuthScreenState extends State<AuthScreen> {
   final passwordController = TextEditingController();
   final _nameController = TextEditingController();
 
-  void _submitAuth() async {
+  Future<void> _submitAuth() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => isLoading = true);
-    Map<String, dynamic> result;
+    User? authenticatedUser;
+    String? errorMessage;
+    var signupNeedsLogin = false;
 
-    if (isLoginMode) {
-      result = await _azureService.login(
-        emailController.text.trim(), 
-        passwordController.text.trim(),
-      );
-    } else {
-      result = await _azureService.register(
-        emailController.text.trim(), 
-        passwordController.text.trim(),
-        _nameController.text.trim(),
-      );
-    }
+    try {
+      final auth = Supabase.instance.client.auth;
+      final email = emailController.text.trim();
+      final password = passwordController.text;
 
-    setState(() => isLoading = false);
-
-    if (result.containsKey('error')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result['error']), backgroundColor: Colors.red),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result['message'] ?? 'Success!'), backgroundColor: Colors.green),
-      );
       if (isLoginMode) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => HomeScreen(user: result['user'])),
+        final response = await auth.signInWithPassword(
+          email: email,
+          password: password,
         );
+        authenticatedUser = response.user;
+        if (authenticatedUser == null) {
+          throw const AuthException('Sign-in did not return a user.');
+        }
+        await _saveProfile(authenticatedUser);
       } else {
-        setState(() => isLoginMode = true);
+        final fullName = _nameController.text.trim();
+        final nameParts = fullName.split(RegExp(r'\s+'));
+        final response = await auth.signUp(
+          email: email,
+          password: password,
+          data: {
+            'full_name': fullName,
+            'first_name': nameParts.first,
+            'last_name': nameParts.skip(1).join(' '),
+          },
+        );
+        authenticatedUser = response.user;
+        if (authenticatedUser == null) {
+          throw const AuthException('Sign-up did not return a user.');
+        }
+        await _saveProfile(authenticatedUser);
+        signupNeedsLogin = response.session == null;
       }
+    } on AuthException catch (error) {
+      errorMessage = error.message;
+    } catch (error) {
+      errorMessage = 'Could not complete authentication: $error';
+    } finally {
+      if (mounted) setState(() => isLoading = false);
     }
+
+    if (!mounted) return;
+    if (errorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    if (authenticatedUser == null) return;
+    if (signupNeedsLogin) {
+      setState(() => isLoginMode = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Account created. You can now sign in.')),
+      );
+      return;
+    }
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (context) => HomeScreen(user: {
+          'id': authenticatedUser!.id,
+          'name': authenticatedUser.userMetadata?['full_name'] ??
+              authenticatedUser.email?.split('@').first ??
+              'User',
+        }),
+      ),
+    );
+  }
+
+  Future<void> _saveProfile(User user) async {
+    final metadata = user.userMetadata ?? const <String, dynamic>{};
+    final fullName = (metadata['full_name'] ?? '').toString().trim();
+    final nameParts = fullName.isEmpty ? <String>[] : fullName.split(RegExp(r'\s+'));
+
+    await Supabase.instance.client.from('profiles').upsert({
+      'id': user.id,
+      'first_name': metadata['first_name'] ?? nameParts.firstOrNull,
+      'last_name': metadata['last_name'] ??
+          (nameParts.length > 1 ? nameParts.skip(1).join(' ') : null),
+    });
   }
 
   @override
@@ -70,7 +122,7 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(isLoginMode ? 'Sign In to Azure' : 'Create Azure Account')),
+      appBar: AppBar(title: Text(isLoginMode ? 'Sign In' : 'Create Account')),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),

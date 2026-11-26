@@ -1,11 +1,7 @@
-import 'dart:async';
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import '../azure_config.dart';
-import '../azure_service.dart';
-import 'scan.dart'; // Correct lowercase target match matching your filesystem 
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../square_gift_card_lookup_service.dart';
+import 'scan.dart';
 
 const _background = Color(0xFF141518);
 const _surface = Color(0xFF202126);
@@ -28,49 +24,65 @@ class WalletSession extends ChangeNotifier {
   final bool isPreview;
   final List<WalletGiftCard> _cards = [];
   bool _isLoading = false;
+  String? _loadError;
 
   List<WalletGiftCard> get cards => List.unmodifiable(_cards);
   bool get isLoading => _isLoading;
-  static const int _currentUserId = 1;
+  String? get loadError => _loadError;
 
-  /// Fetches gift cards cleanly from your Node.js Azure backend database route
-    Future<void> fetchWalletCards() async {
+  Future<void> fetchWalletCards() async {
     if (isPreview || _isLoading) return;
 
     _isLoading = true;
+    _loadError = null;
     notifyListeners();
 
-    final Uri url = Uri.parse('${AzureConfig.baseUrl}/giftcards');
-
     try {
-      debugPrint("=== [DEBUG] FETCHING CARDS FROM: $url ===");
-      final response = await http.get(
-        url,
-        headers: {'x-functions-key': AzureConfig.functionKey},
-      ).timeout(const Duration(seconds: 10));
-      
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        _cards.clear();
-        for (var item in data) {
-          final double balanceDecimal = (item['CurrentBalance'] ?? 0.0).toDouble();
-          _cards.add(WalletGiftCard(
-            merchant: item['Nickname'] ?? item['MerchantName'] ?? 'Unknown Merchant',
-            barcode: item['RawBarcodeData'] ?? '',
-            cardId: int.tryParse(item['CardID']?.toString() ?? ''),
-            squareGiftCardId: item['SquareGiftCardID']?.toString(),
-            status: item['Status']?.toString() ?? 'active',
-            balanceCents: (balanceDecimal * 100).toInt(),
-            originalCents: (balanceDecimal * 100).toInt(), 
-            addedAt: item['DateAdded'] != null ? DateTime.parse(item['DateAdded']) : DateTime.now(),
-          ));
-        }
-        debugPrint("=== [DEBUG] FETCHED ${_cards.length} CARDS SUCCESSFULLY ===");
-      } else {
-        debugPrint("=== [DEBUG] FETCH FAILED WITH STATUS: ${response.statusCode} ===");
+      final client = Supabase.instance.client;
+      final user = client.auth.currentUser;
+      if (user == null) {
+        throw StateError('Sign in before loading your wallet.');
       }
+
+      final rows = await client
+          .from('gift_cards')
+          .select(
+            'card_id, user_id, merchant_id, raw_barcode_data, nickname, '
+            'current_balance, status, square_gift_card_id, added_at, '
+            'merchants(merchant_name)',
+          )
+          .eq('user_id', user.id)
+          .isFilter('deleted_at', null)
+          .order('added_at', ascending: false);
+
+      final loadedCards = rows.map((row) {
+        final merchantData = row['merchants'];
+        final merchantName = merchantData is Map<String, dynamic>
+            ? merchantData['merchant_name']?.toString()
+            : null;
+        final balance = row['current_balance'];
+        final addedAt = DateTime.tryParse(row['added_at']?.toString() ?? '');
+
+        return WalletGiftCard(
+          merchant: (row['nickname']?.toString().trim().isNotEmpty ?? false)
+              ? row['nickname'].toString()
+              : merchantName ?? 'Unknown Merchant',
+          barcode: row['raw_barcode_data']?.toString() ?? '',
+          cardId: (row['card_id'] as num?)?.toInt(),
+          squareGiftCardId: row['square_gift_card_id']?.toString(),
+          status: row['status']?.toString() ?? 'active',
+          balanceCents: balance is num ? (balance * 100).round() : null,
+          originalCents: balance is num ? (balance * 100).round() : null,
+          addedAt: addedAt ?? DateTime.now(),
+        );
+      }).toList();
+
+      _cards
+        ..clear()
+        ..addAll(loadedCards);
     } catch (error) {
-      debugPrint("🚨 === [DEBUG] API RETRIEVAL ERROR TRACE: $error ===");
+      _loadError = error.toString().replaceFirst('Exception: ', '');
+      debugPrint('Failed to load wallet cards: $error');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -104,29 +116,14 @@ class WalletSession extends ChangeNotifier {
       throw StateError('This card has no database ID. Refresh the wallet and try again.');
     }
 
-    final response = await http
-        .delete(
-          Uri.parse('${AzureConfig.baseUrl}/giftcards/$cardId'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'x-functions-key': AzureConfig.functionKey,
-          },
-          body: jsonEncode({'UserID': _currentUserId}),
-        )
-        .timeout(const Duration(seconds: 20));
+    final deletedRows = await Supabase.instance.client
+        .from('gift_cards')
+        .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('card_id', cardId)
+        .select('card_id');
 
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      String message = 'Delete failed (${response.statusCode}).';
-      try {
-        final body = jsonDecode(response.body);
-        if (body is Map && body['error'] is String) {
-          message = body['error'] as String;
-        }
-      } on FormatException {
-        // Keep the status-based error when the server does not return JSON.
-      }
-      throw Exception(message);
+    if (deletedRows.isEmpty) {
+      throw StateError('The card was not found or you do not have permission to remove it.');
     }
 
     _cards.removeWhere((item) => item.cardId == cardId);
@@ -208,7 +205,8 @@ class _WalletPageState extends State<WalletPage> {
   }
 
   Future<void> _reviewBarcode(String barcode) async {
-    final lookupFuture = AzureService().lookupSquareGiftCard(barcode.trim());
+    final lookupFuture =
+        SquareGiftCardLookupService().lookupSquareGiftCard(barcode.trim());
     final loadingDialog = showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -453,6 +451,24 @@ const SizedBox(height: 12),
 Expanded(
 child: widget.session.isLoading
 ? const Center(child: CircularProgressIndicator(color: _lime))
+: widget.session.loadError != null
+? Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Could not load wallet: ${widget.session.loadError}',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: _mutedText),
+        ),
+        const SizedBox(height: 12),
+        TextButton(
+          onPressed: widget.session.fetchWalletCards,
+          child: const Text('Retry'),
+        ),
+      ],
+    ),
+  )
 : cards.isEmpty
 ? const Center(child: Text('No gift cards found.', style: TextStyle(color: _mutedText, fontSize: 16)))
 : ListView.builder(
@@ -524,67 +540,57 @@ _balanceController.dispose();
 _pinController.dispose();
 super.dispose();
 }
-Future<void> _submitPayloadToAzure() async {
+Future<void> _saveCardToSupabase() async {
 if (_isSending) return;
 setState(() => _isSending = true);
-final Uri azureSaveUrl = Uri.parse('${AzureConfig.baseUrl}/giftcards');
 try {
-final balanceValue = widget.squareCard.balanceCents / 100;
-Map<String, dynamic> giftCardPayload = {
-"UserID": 1,
-"MerchantID": null,
-"SquareGiftCardID": widget.squareCard.id,
-"RawBarcodeData": widget.barcode,
-"Nickname": _nicknameController.text.trim().isEmpty ? 'Square Gift Card' : _nicknameController.text.trim(),
-"CurrentBalance": balanceValue,
-"Status": widget.squareCard.state.toLowerCase(),
-"Pin": _pinController.text.trim().isEmpty ? null : _pinController.text.trim()
-};
-final response = await http.post(
-azureSaveUrl,
-headers: {
-  'Content-Type': 'application/json',
-  'Accept': 'application/json',
-  'x-functions-key': AzureConfig.functionKey,
-},
-body: jsonEncode(giftCardPayload),
-).timeout(const Duration(seconds: 20));
-if (response.statusCode >= 200 && response.statusCode < 300) {
-if (!mounted) return;
-final responseData = jsonDecode(response.body) as Map<String, dynamic>;
-final cardId = int.tryParse(responseData['cardId']?.toString() ?? '');
-if (cardId == null) {
-  throw const FormatException('Save response did not include a card ID.');
+final client = Supabase.instance.client;
+final user = client.auth.currentUser;
+if (user == null) {
+ throw StateError('Sign in before saving a gift card.');
 }
+
+final nickname = _nicknameController.text.trim().isEmpty
+   ? 'Square Gift Card'
+   : _nicknameController.text.trim();
+final balance = (widget.squareCard.balanceCents / 100).toStringAsFixed(2);
+final savedRow = await client
+   .from('gift_cards')
+   .insert({
+     'user_id': user.id,
+     'merchant_id': 1,
+     'raw_barcode_data': widget.barcode,
+     'nickname': nickname,
+     'current_balance': balance,
+     'status': widget.squareCard.state.toLowerCase(),
+     'square_gift_card_id': widget.squareCard.id,
+   })
+   .select('card_id, added_at')
+   .single();
+
+if (!mounted) return;
 final newCardItem = WalletGiftCard(
-merchant: _nicknameController.text.trim().isEmpty ? 'Square Gift Card' : _nicknameController.text.trim(),
+merchant: nickname,
 barcode: widget.barcode,
-cardId: cardId,
+cardId: (savedRow['card_id'] as num).toInt(),
 squareGiftCardId: widget.squareCard.id,
 status: widget.squareCard.state.toLowerCase(),
-balanceCents: (balanceValue * 100).toInt(),
-originalCents: (balanceValue * 100).toInt(),
-addedAt: DateTime.now(),
+balanceCents: widget.squareCard.balanceCents,
+originalCents: widget.squareCard.balanceCents,
+addedAt: DateTime.tryParse(savedRow['added_at']?.toString() ?? '') ??
+   DateTime.now(),
 );
 widget.onSaveSuccess(newCardItem);
 widget.onTriggerRefresh();
-if (mounted) {
 Navigator.pop(context);
 ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(content: Text('Saved successfully!'), backgroundColor: Color(0xFF2C4721)),
+ const SnackBar(
+   content: Text('Saved successfully!'),
+   backgroundColor: Color(0xFF2C4721),
+ ),
 );
-}
-} else {
-final details = response.body.trim();
-_showError(
-  'Save failed (${response.statusCode})'
-  '${details.isEmpty ? '.' : ': $details'}',
-);
-}
-} on TimeoutException {
-_showError('Saving the card timed out. Check your connection and try again.');
 } catch (err) {
-_showError('Unable to save the card: $err');
+_showError('Unable to save the card: ${err.toString().replaceFirst('Exception: ', '')}');
 } finally {
 if (mounted) setState(() => _isSending = false);
 }
@@ -611,7 +617,10 @@ crossAxisAlignment: CrossAxisAlignment.start,
 children: [
 const Text('Review Scanned Card', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
 const SizedBox(height: 12),
-Text('Barcode: ${widget.barcode}', style: const TextStyle(color: _lime, fontWeight: FontWeight.w600)),
+Text(
+  'Barcode: •••• ${widget.barcode.length > 4 ? widget.barcode.substring(widget.barcode.length - 4) : widget.barcode}',
+  style: const TextStyle(color: _lime, fontWeight: FontWeight.w600),
+),
 Text(
   'Square status: ${widget.squareCard.state}',
   style: TextStyle(
@@ -641,17 +650,22 @@ labelStyle: TextStyle(color: _mutedText),
 ),
 TextField(
 controller: _pinController,
+obscureText: true,
+keyboardType: TextInputType.number,
 style: const TextStyle(color: Colors.white),
-decoration: const InputDecoration(labelText: 'PIN (Optional)', labelStyle: TextStyle(color: _mutedText)),
+decoration: const InputDecoration(
+  labelText: 'PIN (temporary; not saved)',
+  labelStyle: TextStyle(color: _mutedText),
+),
 ),
 const SizedBox(height: 24),
 SizedBox(
 width: double.infinity,
 height: 50,
 child: ElevatedButton(
-onPressed: _isSending ? null : _submitPayloadToAzure,
+onPressed: _isSending ? null : _saveCardToSupabase,
 style: ElevatedButton.styleFrom(backgroundColor: _lime, foregroundColor: _background),
-child: _isSending ? const CircularProgressIndicator(color: _background) : const Text('Save Card to Azure Cloud', style: TextStyle(fontWeight: FontWeight.bold)),
+child: _isSending ? const CircularProgressIndicator(color: _background) : const Text('Save Card to Wallet', style: TextStyle(fontWeight: FontWeight.bold)),
 ),
 )
 ],

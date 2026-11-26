@@ -444,7 +444,7 @@ class _SessionNote extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(isPreview ? 'Preview includes sample cards' : 'Azure-backed wallet', style: const TextStyle(
+              Text(isPreview ? 'Preview includes sample cards' : 'Supabase-backed wallet', style: const TextStyle(
                 color: _lavender, fontWeight: FontWeight.w700,
               )),
               const SizedBox(height: 3),

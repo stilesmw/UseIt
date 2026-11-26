@@ -1,4 +1,4 @@
-import '../azure_service.dart';
+import '../square_gift_card_lookup_service.dart';
 
 Future<SquareGiftCardLookup> getCard(String gan) =>
-    AzureService().lookupSquareGiftCard(gan);
+    SquareGiftCardLookupService().lookupSquareGiftCard(gan);
